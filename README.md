@@ -1,200 +1,193 @@
-🚛 Predictive Vehicle Maintenance for Trucks
-AI-powered system to predict next servicing, part failures, and maintenance needs
-📝 Overview
+# 🚛 Predictive Vehicle Maintenance for Trucks  
+### 🔧 AI-powered analytics to predict servicing schedules, component failures & fleet health.
 
-This project predicts next service date (in days) and potential component failures for trucks using:
+---
 
-Engine temperature
+## 🧭 Overview  
+This project uses **Machine Learning** + **real-time truck sensor data** to predict:
 
-Vibration levels
+- 📅 **Days until next maintenance**
+- 🚨 **Risk level** (Critical / High / Medium / Low)
+- 🔩 **Probability of component failures**
+- 🔄 **Workshop impact** (queue, technician skill, stocks)
+- 📜 **Full truck service history**
+- 🧠 Smart **autofill using truck number plate**
 
-Oil life
+A modern **Streamlit application** with a **dark UI**, **glassmorphism**, and an optional **truck background image** powers the user experience.
 
-Battery health
+---
 
-Brake pad wear
+## ⭐ Key Features  
 
-Tyre condition
+### 🔮 1. Predictive Maintenance  
+Machine learning model predicts:
+- Days to next service  
+- Maintenance urgency  
+- Fault probability based on sensors  
 
-Fuel efficiency
+### 🚚 2. Truck Plate Autofill  
+When a plate number is entered:
+- If **existing** → autofill past details  
+- If **new** → manual entry  
+Makes the system fast & efficient for real workshops.
 
-Load & route behavior
+### 🧪 3. Real-Time Sensor Health Levels  
+Each sensor shows visual badges:
+- 🟢 **Healthy**  
+- 🟡 **Warning**  
+- 🔴 **Critical**  
 
-Workshop factors (queue, shift hours, technician experience)
+Evaluated for:
+- Engine Temperature  
+- Vibrations  
+- Oil Life  
+- Battery Health  
+- Brake Pad Thickness  
+- Tyre Health  
+- Fuel Efficiency  
+- Ambient Temperature Impact  
 
-Historical service records
-
-It includes:
-✔ A machine-learning model (Regression)
-✔ A synthetic dataset (2000+ records)
-✔ A beautiful Streamlit App
-✔ History autofill using truck number plate
-✔ Advanced UI with glassmorphism + truck background
-✔ Real-time health analysis badges (Healthy / Warning / Critical)
-
-🧠 Key Features
-🔮 Predict Next Service / Part Failure
-
-The system predicts:
-
-Days until next service
-
-Health risk bucket (Low / Medium / High / Critical)
-
-🚚 Autofill Using Truck Number Plate
-
-If a truck exists in historical records → auto-populates all fields
-
-If new → user enters details manually
-
-📚 Service History
-
-Search by truck number plate
-
-View full timeline of previous services
-
-See technician details, parts changed, and sensor state
-
-📊 Dashboard
-
-Avg days to next service
-
-Critical trucks (%)
-
-Avg km after last service
-
-Number of fleet trucks
-
-Service window distribution
-
-Engine temperature vs vibration heatmap
-
-Vehicle model distribution chart
-
-🧪 Engine & Sensor Health Levels
-
-Each sensor is analyzed:
-
-🟢 Healthy
-
-🟡 Moderate
-
-🔴 Critical
-
+### 📊 4. Dynamic Dashboard  
 Includes:
+- ⭐ Average days until next service  
+- 🚨 % of critical trucks  
+- 📍 Avg KM after last service  
+- 🚛 Count of unique trucks  
+- 📉 Days-to-service distribution  
+- 🌡️ Temperature vs Vibration heatmap  
+- 🏷️ Trucks by model  
 
-Engine Temp
+### 📚 5. Full Service History  
+- View all past service logs  
+- Most recent service snapshot  
+- Technician details  
+- Parts replaced  
+- Service type  
+- Timeline of repairs  
 
-Vibration Level
+### 🗂️ 6. Data Explorer  
+- View entire dataset  
+- Filter & analyze  
+- Download CSV  
 
-Oil Life
+---
 
-Battery Health
+## 🧠 Machine Learning Model  
 
-Brake Thickness
+### Model type  
+Uses **Scikit-Learn** Regression Pipeline with:
+- Numeric scaling  
+- One-hot encoding  
+- RandomForestRegressor (recommended)  
 
-Tyre Health
+### Trained on  
+✔ 2000+ synthetic truck maintenance records  
 
-Fuel Efficiency
+### Target predicted  
+**days_until_next_service**
 
-🧰 Tech Stack
-Component	Technology
-Frontend	Streamlit, HTML/CSS, Glassmorphism UI
-ML Model	Scikit-Learn Regression Model
-Data	2000+ Synthetic Truck Maintenance Records
-Language	Python 3.10+
-Storage	CSV-based history records
-Deployment	Streamlit Cloud / Local execution
+### Important engineered features  
+- avg_daily_km_est  
+- ambient_temp_c  
+- brake_pad_thickness_mm  
+- tyre_health_percent  
+- fuel_efficiency_kmpl  
+- approx_past_services  
+- workshop metadata  
 
-📁 Project Structure
-Predictive-Vehicle-Maintenance/
+---
+
+## 🧰 Tech Stack  
+
+### Backend & ML  
+- Python 3.10+  
+- Pandas / NumPy  
+- Scikit-Learn  
+- Joblib  
+
+### Frontend  
+- Streamlit  
+- Altair Charts  
+- Custom CSS (dark + glassmorphism)  
+- Background truck image  
+
+### Storage  
+- CSV for dataset  
+- PKL model file  
+
+---
+
+## 📁 Project Structure  
+
+predictive-vehicle-maintenance/
 │── app.py
 │── predictive_truck_maintenance_2000.csv
 │── truck_maintenance_regressor.pkl
+│── requirements.txt
 │── README.md
-│── assets/
-│     └── truck_bg.jpg (optional)
-│── model_training_notebook.ipynb (optional)
 
-🗂️ Dataset Description
+---
 
-Your dataset includes (2000+ rows):
+## 📊 Dataset Description  
 
-🔧 Vehicle Info
+### 🚛 Vehicle Info  
+- truck_number_plate  
+- vehicle_model  
+- year_bought  
+- route_type  
+- load_profile  
 
-truck_number_plate
+### 🔧 Sensors  
+- engine_temperature_c  
+- vibrations_level  
+- oil_life_percent  
+- battery_health_percent  
+- brake_pad_thickness_mm  
+- tyre_health_percent  
+- fuel_efficiency_kmpl  
+- ambient_temp_c  
 
-vehicle_model
+### 🛣️ Operational Data  
+- total_km_run  
+- km_after_last_service  
+- avg_daily_km_est  
 
-year_bought
+### 🏭 Workshop Metadata  
+- technician_id  
+- technician_experience_years  
+- shift_hours_remaining  
+- current_queue_length  
+- service_type  
+- parts_in_stock_status  
 
-route_type
+### 🎯 Target  
+- days_until_next_service  
 
-load_profile
+---
 
-🧪 Sensor Data
+## 🏗️ Architecture  
+User Input / History Autofill
+↓
+Feature Preprocessing (Scaling + Encoding)
+↓
+ML Regression Model
+↓
+Predicted Days Until Next Service
+↓
+Risk Level Assignment
+↓
+Displayed in Streamlit App
 
-engine_temperature_c
 
-vibrations_level
+---
 
-oil_life_percent
+## ▶️ How to Run  
 
-battery_health_percent
+### 1️⃣ Install dependencies 
+pip install -r requirements.txt 
 
-brake_pad_thickness_mm
+### 2️⃣ Run the app 
+streamlit run app.py 
 
-tyre_health_percent
-
-fuel_efficiency_kmpl
-
-ambient_temp_c
-
-🔧 Operational Data
-
-total_km_run
-
-km_after_last_service
-
-avg_daily_km_est
-
-🏭 Workshop / Technician Data
-
-service_type
-
-technician_id
-
-technician_experience_years
-
-current_queue_length
-
-shift_hours_remaining
-
-parts_in_stock_status
-
-🎯 Target Column
-
-days_until_next_service
-
-⚙️ How to Run the Project
-1️⃣ Create or use an existing environment
-conda activate base
-
-2️⃣ Install dependencies
-pip install -r requirements.txt
-
-3️⃣ Run the Streamlit application
-streamlit run app.py
-
-4️⃣ Visit the app in your browser
-http://localhost:8501
-
-🧩 ML Model Training
-
-The regression model:
-
-one-hot encodes categorical data
-
-scales numerical features
-
-trains using RandomForestRegressor / GradientBoosting / LinearReg
+### 3️⃣ Open in browser
+http://localhost:8501  
