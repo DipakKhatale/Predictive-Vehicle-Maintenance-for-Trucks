@@ -117,15 +117,6 @@ Uses **Scikit-Learn** Regression Pipeline with:
 
 ---
 
-## 📁 Project Structure  
-
-predictive-vehicle-maintenance/
-│── app.py
-│── predictive_truck_maintenance_2000.csv
-│── truck_maintenance_regressor.pkl
-│── requirements.txt
-│── README.md
-
 ---
 
 ## 📊 Dataset Description  
@@ -152,13 +143,6 @@ predictive-vehicle-maintenance/
 - km_after_last_service  
 - avg_daily_km_est  
 
-### 🏭 Workshop Metadata  
-- technician_id  
-- technician_experience_years  
-- shift_hours_remaining  
-- current_queue_length  
-- service_type  
-- parts_in_stock_status  
 
 ### 🎯 Target  
 - days_until_next_service  
