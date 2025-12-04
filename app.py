@@ -1,68 +1,68 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import joblib
 from pathlib import Path
 import altair as alt
+import numpy as np
 
-
-# PAGE CONFIG
-
+# ----------------- CONFIG -----------------
 st.set_page_config(
     page_title="Predictive Vehicle Maintenance",
     page_icon="🚛",
     layout="wide",
 )
 
+# ----------------- CONSTANTS & FEATURES -----------------
+DATA_PATH = Path("predictive_truck_maintenance_2000.csv")
+MODEL_PATH = Path("truck_maintenance_regressor.pkl")
 
-# GLASS UI
+# This must match the features used when training your model (exclude technician_id).
+# If you retrain, ensure the pipeline uses exactly this list (or update here to match model).
+FEATURES = [
+    "vehicle_model","year_bought","total_km_run","km_after_last_service",
+    "avg_daily_km_est","engine_temperature_c","vibrations_level","oil_life_percent","battery_health_percent",
+    "route_type","load_profile","ambient_temp_c","service_type","parts_in_stock_status",
+    "technician_experience_years","current_queue_length","shift_hours_remaining",
+    "brake_pad_thickness_mm","tyre_health_percent","fuel_efficiency_kmpl","approx_past_services"
+]
 
+# Allowed categories as per your request:
+ROUTE_TYPES = ["Highway", "City", "Mixed", "Off-road"]
+LOAD_PROFILES = ["Light", "Medium", "Heavy"]
+PARTS_STATUS = ["Available", "Out of Stock"]
+SERVICE_TYPES = []  # populated from CSV if possible (keeps flexibility)
+
+# ----------------- STYLES -----------------
 def inject_css():
     st.markdown(
         """
         <style>
-
-        /* SAFE BACKGROUND IMAGE */
+        /* SAFE DARK TRUCK BACKGROUND WITH OVERLAY */
         .main {
             background:
-                linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.75)),
+                linear-gradient(rgba(3,7,18,0.82), rgba(3,7,18,0.82)),
                 url('https://images.pexels.com/photos/2199293/pexels-photo-2199293.jpeg');
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
+            color: #e6eef8;
         }
-
         .glass-card {
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
-            background: rgba(255, 255, 255, 0.10);
-            border-radius: 18px;
-            border: 1px solid rgba(255,255,255,0.15);
-            padding: 1.4rem 1.7rem;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
-            margin-bottom: 1.4rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            background: rgba(255,255,255,0.04);
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.06);
+            padding: 16px;
+            margin-bottom: 18px;
         }
-
-        .section-title {
-            font-size: 1.4rem;
-            font-weight: 600;
-            color: #e2e8f0;
-            margin-bottom: 0.4rem;
-        }
-
-        .badge {
-            padding: 6px 12px;
-            border-radius: 12px;
-            font-weight: 600;
-        }
-        .good { background: rgba(34,197,94,0.2); color: #4ade80; }
-        .warn { background: rgba(234,179,8,0.2); color: #facc15; }
-        .bad  { background: rgba(239,68,68,0.2); color: #f87171; }
-
-        label {
-            color: #e5e7eb !important;
-            font-weight: 600;
-        }
-
+        .section-title { font-size:1.25rem; font-weight:700; color:#e6eef8; margin-bottom:8px; }
+        .badge { padding:6px 10px; border-radius:10px; font-weight:700; }
+        .good { background: rgba(34,197,94,0.18); color:#4ade80; }
+        .warn { background: rgba(234,179,8,0.18); color:#facc15; }
+        .bad  { background: rgba(239,68,68,0.18); color:#f87171; }
+        label { color: #e6eef8 !important; font-weight:600; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -71,14 +71,15 @@ def inject_css():
 inject_css()
 
 
-# LOAD DATA & MODEL
-
-DATA_PATH = Path("predictive_truck_maintenance_2000.csv")
-MODEL_PATH = Path("truck_maintenance_regressor.pkl")
-
+# ----------------- LOAD DATA & MODEL -----------------
 @st.cache_data
 def load_data():
-    return pd.read_csv(DATA_PATH)
+    if DATA_PATH.exists():
+        df = pd.read_csv(DATA_PATH)
+        # Normalize column names (just in case)
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    return pd.DataFrame(columns=FEATURES + ["days_until_next_service", "truck_number_plate", "service_date"])
 
 @st.cache_resource
 def load_model():
@@ -89,378 +90,301 @@ def load_model():
 df = load_data()
 model = load_model()
 
+# populate service types if present
+if "service_type" in df.columns:
+    SERVICE_TYPES = sorted(df["service_type"].dropna().unique().tolist())
+if not SERVICE_TYPES:
+    SERVICE_TYPES = ["Full", "Minor", "Major"]
+
+# ----------------- HELPERS -----------------
+def get_latest_record_for_plate(plate: str):
+    plate = plate.strip().upper()
+    if plate == "":
+        return None, None
+    if "truck_number_plate" not in df.columns:
+        return None, None
+    match = df[df["truck_number_plate"].astype(str).str.upper() == plate]
+    if match.empty:
+        return None, None
+    match_sorted = match.sort_values("service_date", ascending=False)
+    return match_sorted.iloc[0], match_sorted
+
+def health_level(value, good, warn):
+    if value >= good:
+        return "🟢 Healthy", "good"
+    elif value >= warn:
+        return "🟡 Moderate", "warn"
+    else:
+        return "🔴 Critical", "bad"
+
+def safe_get(latest, col, default=None):
+    """Return typed default from latest record or None so fields can be blank on load."""
+    if latest is not None and col in latest and pd.notna(latest[col]):
+        return latest[col]
+    return default
+
+def prepare_input_row(raw_row: dict):
+    """Ensure all FEATURES exist in the row and are in expected order/format for model."""
+    row = {}
+    for f in FEATURES:
+        if f in raw_row and raw_row[f] is not None:
+            row[f] = raw_row[f]
+        else:
+            # sensible defaults
+            if f in ["vehicle_model","route_type","load_profile","service_type","parts_in_stock_status"]:
+                row[f] = "Unknown"
+            elif f in ["year_bought","technician_experience_years","approx_past_services"]:
+                row[f] = 0
+            else:
+                row[f] = 0.0
+    return row
 
 
-# SIDEBAR NAVIGATION
-
+# ----------------- UI PAGES -----------------
 st.sidebar.title("🚛 Predictive Vehicle Maintenance")
-
-page = st.sidebar.radio(
-    "Navigate",
-    ["Dashboard", "Predict Next Service", "Service History", "Data Explorer"],
-)
-
+page = st.sidebar.radio("Navigate", ["Dashboard", "Predict Next Service", "Service History", "Data Explorer"])
 st.sidebar.markdown("---")
 st.sidebar.caption("Built for truck service centers • Demo prototype")
 
-
-# UTILITY FUNCTIONS
-
-def get_latest_record_for_plate(plate: str):
-    plate = plate.strip().upper()
-    match = df[df["truck_number_plate"].str.upper() == plate]
-    if match.empty:
-        return None, None
-    latest = match.sort_values("service_date", ascending=False).iloc[0]
-    return latest, match
-
-def health_level(value, good, warn):
-    if value >= good: return "🟢 Healthy", "good"
-    elif value >= warn: return "🟡 Moderate", "warn"
-    else: return "🔴 Critical", "bad"
-
-def autofill(latest, col):
-    """Return saved value or None for new truck (so fields stay empty)."""
-    if latest is not None and col in latest:
-        return latest[col]
-    return None
-
-
-# PAGE 1 — DASHBOARD
-
+# ----------------- DASHBOARD -----------------
 if page == "Dashboard":
-
     st.markdown("""
-        <div style='padding: 2rem; 
-             border-radius: 1rem;
-             background: linear-gradient(135deg,#1e293b 0%,#0f172a 60%,#020617 100%);
-             color: white;
-             box-shadow: 0 18px 45px rgba(0,0,0,0.5);'>
-            <h1 style='font-size:2.7rem;font-weight:800;'>🚛 Fleet Maintenance Intelligence</h1>
-            <p style='font-size:1.1rem;opacity:0.85;'>Live insights • Smart predictions • Modern workshop analytics</p>
+        <div class="glass-card">
+          <h1 style="margin:0;">🚛 Fleet Maintenance Intelligence</h1>
+          <p style="margin-top:6px;color:#cbd5e1;">Insights, health monitoring, and predictive servicing for your fleet.</p>
         </div>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    def metric_card(title, value, subtitle, icon):
+    # Metrics row
+    colA, colB, colC, colD = st.columns(4)
+    def metric_card(title, value, helper=""):
         st.markdown(f"""
-        <div style="background:rgba(255,255,255,0.08);padding:1.3rem;border-radius:1rem;
-                     backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.12);
-                     box-shadow:0 8px 22px rgba(0,0,0,0.45);color:#e2e8f0;">
-            <div style='font-size:1.2rem;opacity:0.7;'>{icon} {title}</div>
-            <div style='font-size:2rem;font-weight:700;color:#38bdf8;'>{value}</div>
-            <div style='font-size:.80rem;opacity:.6;'>{subtitle}</div>
-        </div>
+            <div class="glass-card">
+              <div style="font-weight:700">{title}</div>
+              <div style="font-size:1.6rem;color:#38bdf8;font-weight:800">{value}</div>
+              <div style="color:#aab4c3">{helper}</div>
+            </div>
         """, unsafe_allow_html=True)
 
-    with col1:
-        metric_card("Avg. Days Until Service",
-                    f"{df['days_until_next_service'].mean():.1f}", 
-                    "Fleet-wide average", "⏳")
-    with col2:
-        metric_card("Critical Trucks",
-                    f"{(df['days_until_next_service']<=15).mean()*100:.1f}%",
-                    "Need urgent service", "🚨")
-    with col3:
-        metric_card("Avg KM Since Service",
-                    f"{df['km_after_last_service'].mean():,.0f}",
-                    "Per service event", "📍")
-    with col4:
-        metric_card("Unique Trucks", 
-                    df["truck_number_plate"].nunique(),
-                    "Tracked in system", "🚚")
+    avg_next = df["days_until_next_service"].mean() if "days_until_next_service" in df.columns and not df.empty else float("nan")
+    metric_card("Avg. Days Until Next Service", f"{avg_next:.1f} days" if not np.isnan(avg_next) else "N/A", "Fleet average")
+    critical_pct = (df["days_until_next_service"] <= 15).mean()*100 if "days_until_next_service" in df.columns and not df.empty else 0
+    metric_card("Trucks in Critical Window", f"{critical_pct:.1f} %", "≤ 15 days")
+    metric_card("Avg KM Since Last Service", f"{df['km_after_last_service'].mean():,.0f} km" if "km_after_last_service" in df.columns and not df.empty else "N/A")
+    metric_card("Unique Trucks in System", df["truck_number_plate"].nunique() if "truck_number_plate" in df.columns else 0)
 
     st.markdown("---")
+    st.markdown("### Quick glance at sample records")
+    st.dataframe(df.head(20), use_container_width=True)
 
-    st.markdown("### 📊 Service Window Distribution")
-    chart1 = alt.Chart(df).mark_area(opacity=0.7).encode(
-        x=alt.X("days_until_next_service", bin=True),
-        y="count()",
-        color=alt.value("#38bdf8"),
-    ).properties(height=300)
-    st.altair_chart(chart1, use_container_width=True)
-
-    st.markdown("### 🧠 Engine Temp vs Vibrations")
-    chart2 = alt.Chart(df).mark_circle(size=60).encode(
-        x="engine_temperature_c",
-        y="vibrations_level",
-        color=alt.Color("days_until_next_service", scale=alt.Scale(scheme="turbo")),
-        tooltip=["truck_number_plate", "engine_temperature_c", "vibrations_level"],
-    ).properties(height=350)
-    st.altair_chart(chart2, use_container_width=True)
-
-
-
-
-# PAGE 2 — PREDICT NEXT SERVICE
-
+# ----------------- PREDICT NEXT SERVICE -----------------
 elif page == "Predict Next Service":
-
     st.markdown("<h1 style='color:white;'>🔮 Predict Next Service Interval</h1>", unsafe_allow_html=True)
 
-    # -------- FETCH HISTORY BOX --------
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    cA, cB = st.columns([3, 1])
-
-    with cA:
-        plate = st.text_input("Enter Truck Number Plate (optional for new truck)")
-    with cB:
-        fetch = st.button("Fetch History", use_container_width=True)
-
+    st.markdown("<div style='font-weight:700'>Choose mode</div>", unsafe_allow_html=True)
+    mode = st.selectbox("Select mode", ["-- Select --", "Existing Truck (auto-fill)", "New Truck (manual entry)"], index=0)
     st.markdown("</div>", unsafe_allow_html=True)
 
     latest = None
-    history = None
+    history_df = None
 
-    if fetch and plate.strip():
-        latest, history = get_latest_record_for_plate(plate)
-        if latest is None:
-            st.info("No history found. New truck detected.")
-        else:
-            st.success("History found. Autofilling details.")
+    if mode == "Existing Truck (auto-fill)":
+        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+        plate = st.text_input("Enter Truck Number Plate (exact)", key="fetch_plate")
+        fetch_btn = st.button("Fetch History", use_container_width=False)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # -------------- MAIN FORM --------------
+        if fetch_btn and plate.strip():
+            latest, history_df = get_latest_record_for_plate(plate)
+            if latest is None:
+                st.warning("No history found for this plate. Switch to 'New Truck' to enter details manually.")
+            else:
+                st.success("History found; form will be pre-filled from latest record.")
+    elif mode == "New Truck (manual entry)":
+        plate = None
+    else:
+        # nothing selected -> don't show form
+        st.info("Choose a mode above to continue.")
+        st.stop()
+
+    # ---- Show form (either autofilled or blank) ----
     with st.form("predict_form"):
 
-        # ========== VEHICLE INFO ==========
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         st.markdown("<div class='section-title'>🚚 Vehicle Information</div>", unsafe_allow_html=True)
-
         v1, v2, v3, v4 = st.columns(4)
 
+        # vehicle_model: include a top placeholder option for new truck
+        model_options = ["-- Select model --"] + sorted(df["vehicle_model"].dropna().unique().tolist()) if "vehicle_model" in df.columns else ["-- Select model --"]
         with v1:
-            vehicle_model = st.selectbox(
-                "Vehicle Model",
-                df["vehicle_model"].unique(),
-                index=list(df["vehicle_model"].unique()).index(autofill(latest, "vehicle_model"))
-                if latest is not None else None,
-            )
+            sel_vehicle_model = safe_get(latest, "vehicle_model", None)
+            vehicle_model = st.selectbox("Vehicle Model", model_options, index=model_options.index(sel_vehicle_model) if sel_vehicle_model in model_options else 0)
+
         with v2:
-            year_bought = st.number_input(
-                "Year Bought",
-                min_value=2010, max_value=2025,
-                value=int(autofill(latest, "year_bought")) if latest else None,
-            )
+            year_bought = st.number_input("Year Bought", min_value=1990, max_value=2026, value=int(safe_get(latest, "year_bought", 2020)))
+
         with v3:
-            total_km_run = st.number_input(
-                "Total KM Run",
-                min_value=0, max_value=2_000_000,
-                value=int(autofill(latest, "total_km_run")) if latest else None,
-            )
+            total_km_run = st.number_input("Total KM Run", min_value=0, max_value=5_000_000, value=int(safe_get(latest, "total_km_run", 0)), step=500)
+
         with v4:
-            km_after_last_service = st.number_input(
-                "KM After Last Service",
-                min_value=0, max_value=200_000,
-                value=int(autofill(latest, "km_after_last_service")) if latest else None,
-            )
+            km_after_last_service = st.number_input("KM After Last Service", min_value=0, max_value=500_000, value=int(safe_get(latest, "km_after_last_service", 0)), step=100)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # ========== ENGINE & SENSOR HEALTH ==========
+        # Engine & Sensors
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         st.markdown("<div class='section-title'>🧪 Engine & Sensor Health</div>", unsafe_allow_html=True)
-
         e1, e2, e3, e4 = st.columns(4)
 
-        # Engine Temp
         with e1:
-            engine_temp = st.slider(
-                "Engine Temp (°C)", 60, 140,
-                value=int(autofill(latest, "engine_temperature_c")) if latest else 90,
-                step=1,
-            )
-            txt, badge = health_level(140 - engine_temp, 80, 40)
+            engine_temperature_c = st.slider("Engine Temp (°C)", 60, 140, int(safe_get(latest, "engine_temperature_c", 90)), step=1)
+            txt, badge = health_level(140 - engine_temperature_c, 80, 40)
             st.markdown(f"<span class='badge {badge}'>{txt}</span>", unsafe_allow_html=True)
 
-        # Vibrations
         with e2:
-            vibrations = st.slider(
-                "Vibration Level", 0.0, 10.0,
-                value=float(autofill(latest, "vibrations_level")) if latest else 5.0,
-                step=0.1,
-            )
-            txt, badge = health_level(10 - vibrations, 7, 4)
+            vibrations_level = st.slider("Vibration Level", 0.0, 10.0, float(safe_get(latest, "vibrations_level", 5.0)), step=0.1)
+            txt, badge = health_level(10 - vibrations_level, 7, 4)
             st.markdown(f"<span class='badge {badge}'>{txt}</span>", unsafe_allow_html=True)
 
-        # Oil Life
         with e3:
-            oil_life = st.slider(
-                "Oil Life (%)", 0, 100,
-                value=int(autofill(latest, "oil_life_percent")) if latest else 60,
-                step=1,
-            )
-            txt, badge = health_level(oil_life, 60, 30)
+            oil_life_percent = st.slider("Oil Life (%)", 0, 100, int(safe_get(latest, "oil_life_percent", 60)), step=1)
+            txt, badge = health_level(oil_life_percent, 60, 30)
             st.markdown(f"<span class='badge {badge}'>{txt}</span>", unsafe_allow_html=True)
 
-        # Battery
         with e4:
-            battery = st.slider(
-                "Battery Health (%)", 0, 100,
-                value=int(autofill(latest, "battery_health_percent")) if latest else 75,
-                step=1,
-            )
-            txt, badge = health_level(battery, 70, 40)
+            battery_health_percent = st.slider("Battery Health (%)", 0, 100, int(safe_get(latest, "battery_health_percent", 75)), step=1)
+            txt, badge = health_level(battery_health_percent, 70, 40)
             st.markdown(f"<span class='badge {badge}'>{txt}</span>", unsafe_allow_html=True)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # EXTRA MODEL FEATURES
+        # Additional performance indicators
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         st.markdown("<div class='section-title'>⚙️ Additional Performance Indicators</div>", unsafe_allow_html=True)
-
         x1, x2, x3, x4, x5, x6 = st.columns(6)
 
         with x1:
-            avg_daily_km_est = st.number_input(
-                "Avg Daily KM Estimate",
-                min_value=0, max_value=2000,
-                value=int(autofill(latest, "avg_daily_km_est")) if latest else None,
-            )
+            avg_daily_km_est = st.number_input("Avg Daily KM Estimate", min_value=0, max_value=5000, value=int(safe_get(latest, "avg_daily_km_est", 0)))
 
         with x2:
-            ambient_temp = st.slider(
-                "Ambient Temp (°C)",
-                min_value=-5, max_value=50,
-                value=int(autofill(latest, "ambient_temp_c")) if latest else 30,
-                step=1,
-            )
+            ambient_temp_c = st.slider("Ambient Temp (°C)", -10, 50, int(safe_get(latest, "ambient_temp_c", 25)), step=1)
 
         with x3:
-            brake_pad = st.slider(
-                "Brake Pad Thickness (mm)",
-                min_value=1, max_value=25,
-                value=int(autofill(latest, "brake_pad_thickness_mm")) if latest else 12,
-                step=1,
-            )
+            brake_pad_thickness_mm = st.slider("Brake Pad Thickness (mm)", 1, 30, int(safe_get(latest, "brake_pad_thickness_mm", 12)), step=1)
 
         with x4:
-            tyre_health = st.slider(
-                "Tyre Health (%)",
-                min_value=0, max_value=100,
-                value=int(autofill(latest, "tyre_health_percent")) if latest else 70,
-                step=1,
-            )
+            tyre_health_percent = st.slider("Tyre Health (%)", 0, 100, int(safe_get(latest, "tyre_health_percent", 70)), step=1)
 
         with x5:
-            fuel_eff = st.slider(
-                "Fuel Efficiency (kmpl)",
-                min_value=1.0, max_value=7.0,
-                value=float(autofill(latest, "fuel_efficiency_kmpl")) if latest else 3.5,
-                step=0.1,
-            )
+            fuel_efficiency_kmpl = st.slider("Fuel Efficiency (kmpl)", 1.0, 12.0, float(safe_get(latest, "fuel_efficiency_kmpl", 3.5)), step=0.1)
 
         with x6:
-            past_services = st.number_input(
-                "Past Service Count",
-                min_value=0, max_value=50,
-                value=int(autofill(latest, "approx_past_services")) if latest else None,
-            )
+            approx_past_services = st.number_input("Past Service Count", min_value=0, max_value=200, value=int(safe_get(latest, "approx_past_services", 0)))
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # ========== WORKSHOP CONTEXT ==========
+        # Workshop / categorical context
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='section-title'>🧰 Workshop Context</div>", unsafe_allow_html=True)
-
+        st.markdown("<div class='section-title'>🧰 Workshop Context & Categories</div>", unsafe_allow_html=True)
         w1, w2, w3, w4 = st.columns(4)
 
         with w1:
-            service_type = st.selectbox(
-                "Service Type",
-                df["service_type"].unique(),
-                index=list(df["service_type"].unique()).index(autofill(latest, "service_type"))
-                if latest else None,
-            )
+            route_type = st.selectbox("Route Type", ["-- Select --"] + ROUTE_TYPES, index=(ROUTE_TYPES.index(safe_get(latest, "route_type"))+1) if safe_get(latest, "route_type") in ROUTE_TYPES else 0)
+
         with w2:
-            technician_exp = st.number_input(
-                "Technician Experience (years)",
-                min_value=0, max_value=40,
-                value=int(autofill(latest, "technician_experience_years")) if latest else None,
-            )
+            load_profile = st.selectbox("Load Profile", ["-- Select --"] + LOAD_PROFILES, index=(LOAD_PROFILES.index(safe_get(latest, "load_profile"))+1) if safe_get(latest, "load_profile") in LOAD_PROFILES else 0)
+
         with w3:
-            queue_len = st.number_input(
-                "Queue Length",
-                min_value=0, max_value=50,
-                value=int(autofill(latest, "current_queue_length")) if latest else None,
-            )
+            service_type = st.selectbox("Service Type", ["-- Select --"] + SERVICE_TYPES, index=(SERVICE_TYPES.index(safe_get(latest, "service_type"))+1) if safe_get(latest, "service_type") in SERVICE_TYPES else 0)
+
         with w4:
-            shift_hours = st.number_input(
-                "Shift Hours Left",
-                min_value=0.0, max_value=12.0,
-                value=float(autofill(latest, "shift_hours_remaining")) if latest else None,
-            )
+            parts_in_stock_status = st.selectbox("Parts in Stock?", ["-- Select --"] + PARTS_STATUS, index=(PARTS_STATUS.index(safe_get(latest, "parts_in_stock_status"))+1) if safe_get(latest, "parts_in_stock_status") in PARTS_STATUS else 0)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # SUBMIT BUTTON
+        # Workshop numeric context
+        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>👷 Workshop Numeric Context</div>", unsafe_allow_html=True)
+        q1, q2, q3, q4 = st.columns(4)
+
+        with q1:
+            technician_experience_years = st.number_input("Technician Experience (years)", min_value=0, max_value=80, value=int(safe_get(latest, "technician_experience_years", 0)))
+
+        with q2:
+            current_queue_length = st.number_input("Current Queue Length", min_value=0, max_value=200, value=int(safe_get(latest, "current_queue_length", 0)))
+
+        with q3:
+            shift_hours_remaining = st.number_input("Shift Hours Remaining", min_value=0.0, max_value=24.0, value=float(safe_get(latest, "shift_hours_remaining", 0.0)), step=0.5)
+
+        with q4:
+            # placeholder to visually balance layout
+            st.write("")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # submit
         submitted = st.form_submit_button("🚀 Predict Next Service")
 
-    # RUN PREDICTION 
+    # ---------- handle submission ----------
     if submitted:
-
         if model is None:
-            st.error("Model not found.")
+            st.error("Model not found. Place your trained `truck_maintenance_regressor.pkl` in the app folder.")
         else:
-            row = {
-                "vehicle_model": vehicle_model,
+            # compose raw row from inputs
+            raw_row = {
+                "vehicle_model": vehicle_model if vehicle_model and vehicle_model != "-- Select --" else "Unknown",
                 "year_bought": year_bought,
                 "total_km_run": total_km_run,
                 "km_after_last_service": km_after_last_service,
-                "engine_temperature_c": engine_temp,
-                "vibrations_level": vibrations,
-                "oil_life_percent": oil_life,
-                "battery_health_percent": battery,
                 "avg_daily_km_est": avg_daily_km_est,
-                "ambient_temp_c": ambient_temp,
-                "brake_pad_thickness_mm": brake_pad,
-                "tyre_health_percent": tyre_health,
-                "fuel_efficiency_kmpl": fuel_eff,
-                "approx_past_services": past_services,
-                "service_type": service_type,
-                "technician_experience_years": technician_exp,
-                "current_queue_length": queue_len,
-                "shift_hours_remaining": shift_hours,
+                "engine_temperature_c": engine_temperature_c,
+                "vibrations_level": vibrations_level,
+                "oil_life_percent": oil_life_percent,
+                "battery_health_percent": battery_health_percent,
+                "route_type": route_type if route_type and route_type != "-- Select --" else "Unknown",
+                "load_profile": load_profile if load_profile and load_profile != "-- Select --" else "Unknown",
+                "ambient_temp_c": ambient_temp_c,
+                "service_type": service_type if service_type and service_type != "-- Select --" else "Unknown",
+                "parts_in_stock_status": parts_in_stock_status if parts_in_stock_status and parts_in_stock_status != "-- Select --" else "Unknown",
+                "technician_experience_years": technician_experience_years,
+                "current_queue_length": current_queue_length,
+                "shift_hours_remaining": shift_hours_remaining,
+                "brake_pad_thickness_mm": brake_pad_thickness_mm,
+                "tyre_health_percent": tyre_health_percent,
+                "fuel_efficiency_kmpl": fuel_efficiency_kmpl,
+                "approx_past_services": approx_past_services,
             }
 
-            pred = model.predict(pd.DataFrame([row]))[0]
+            clean_row = prepare_input_row(raw_row)
+            X = pd.DataFrame([clean_row])
 
-            st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-            st.markdown(f"""
-                <h2 style='color:#38bdf8;font-size:2rem;'>📅 Next Service In  
-                    <span style='font-size:2.8rem;'>{pred:.1f} days</span>
-                </h2>
-                <p style='color:#cbd5e1;'>Predicted using engine health, usage patterns, and workshop context.</p>
-            """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            try:
+                pred_days = float(model.predict(X)[0])
+                pred_hours = pred_days * 24.0
+                st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+                st.markdown(f"""
+                    <h2 style='color:#38bdf8'>📅 Predicted Next Service: <strong>{pred_days:.1f} days</strong> — (~{pred_hours:.0f} hours)</h2>
+                    <p style='color:#cbd5e1'>This estimate uses the saved model pipeline and the inputs you provided.</p>
+                """, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.exception(f"Prediction failed: {e}")
 
-
-
-# PAGE 3 — SERVICE HISTORY
-
+# ----------------- SERVICE HISTORY -----------------
 elif page == "Service History":
     st.title("📜 Service History Lookup")
-    plate = st.text_input("Enter Truck Number Plate")
-
+    plate = st.text_input("Enter Truck Number Plate (exact)", key="history_plate")
     if st.button("Get History") and plate:
         latest, hist = get_latest_record_for_plate(plate)
-        if hist is None:
-            st.error("No history found.")
+        if hist is None or hist.empty:
+            st.error("No history found for this plate.")
         else:
             st.success(f"Found {len(hist)} record(s).")
-            st.dataframe(hist, use_container_width=True)
+            st.dataframe(hist.sort_values("service_date", ascending=False), use_container_width=True)
 
-
-
-# PAGE 4 — DATA EXPLORER
-
+# ----------------- DATA EXPLORER -----------------
 elif page == "Data Explorer":
     st.title("📂 Data Explorer")
     st.dataframe(df, use_container_width=True)
-
-    st.download_button(
-        "Download Dataset",
-        df.to_csv(index=False),
-        file_name="predictive_truck_maintenance_2000.csv",
-        mime="text/csv",
-    )
+    st.download_button("📥 Download CSV", df.to_csv(index=False), file_name="predictive_truck_maintenance_2000.csv", mime="text/csv")
