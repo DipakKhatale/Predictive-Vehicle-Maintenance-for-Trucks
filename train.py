@@ -7,15 +7,14 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error, r2_score
 import joblib
 
-# ===========================
+
 # 1. Load CLEAN DATASET
-# ===========================
+
 
 df = pd.read_csv("truck_dataset.csv")
 
-# ===========================
+
 # 2. Select useful columns ONLY
-# ===========================
 
 useful_cols = [
     "truck_number_plate",          # ID (not used in model)
@@ -47,16 +46,14 @@ y = df["days_until_next_service"]
 # features (drop target + truck_number_plate)
 X = df.drop(columns=["days_until_next_service", "truck_number_plate"])
 
-# ===========================
+
 # 3. Identify Column Types
-# ===========================
 
 numeric_features = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
 categorical_features = X.select_dtypes(include=["object"]).columns.tolist()
 
-# ===========================
+
 # 4. Preprocessing
-# ===========================
 
 preprocessor = ColumnTransformer(
     transformers=[
@@ -65,9 +62,7 @@ preprocessor = ColumnTransformer(
     ]
 )
 
-# ===========================
 # 5. Model
-# ===========================
 
 model = RandomForestRegressor(
     n_estimators=300,
@@ -75,18 +70,15 @@ model = RandomForestRegressor(
     n_jobs=-1
 )
 
-# ===========================
 # 6. Pipeline
-# ===========================
 
 pipeline = Pipeline(steps=[
     ("preprocess", preprocessor),
     ("model", model)
 ])
 
-# ===========================
+
 # 7. Train/Test Split
-# ===========================
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.20, random_state=42
@@ -94,17 +86,13 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 pipeline.fit(X_train, y_train)
 
-# ===========================
 # 8. Evaluate
-# ===========================
 
 y_pred = pipeline.predict(X_test)
 print("MAE:", mean_absolute_error(y_test, y_pred))
 print("R²:", r2_score(y_test, y_pred))
 
-# ===========================
 # 9. SAVE MODEL
-# ===========================
 
 joblib.dump(pipeline, "truck_maintenance_regressor.pkl")
 print("Model saved ✔")

@@ -4,43 +4,43 @@ import joblib
 from pathlib import Path
 import altair as alt
 
-# ============================
 # PAGE CONFIG
-# ============================
 st.set_page_config(page_title="Predictive Truck Maintenance", page_icon="🚛", layout="wide")
 
 
-# ============================
 # GLASS UI CSS
-# ============================
+
 def inject_css():
     st.markdown("""
         <style>
+        /* CLEAN DARK BACKGROUND – NO TRUCK IMAGE */
         .main {
-            background:
-                linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.75)),
-                url('https://images.pexels.com/photos/2199293/pexels-photo-2199293.jpeg');
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #0f172a 100%) !important;
             background-size: cover;
-            background-position: center;
             background-attachment: fixed;
         }
+
         .glass-card {
             backdrop-filter: blur(14px);
-            background: rgba(255,255,255,0.10);
+            background: rgba(255,255,255,0.08);
             border-radius: 18px;
             padding: 1.4rem;
             border: 1px solid rgba(255,255,255,0.12);
             margin-bottom: 1.4rem;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.35);
         }
+
         .section-title {
             font-size: 1.3rem;
             color: #e2e8f0;
             font-weight: 600;
         }
+
         label {
             color: #e5e7eb !important;
             font-weight: 600;
         }
+
         .badge {
             padding: 6px 12px;
             border-radius: 12px;
@@ -53,11 +53,12 @@ def inject_css():
     """, unsafe_allow_html=True)
 
 
+
 inject_css()
 
-# ============================
+
 # LOAD DATA & MODEL
-# ============================
+
 DATA_PATH = Path("truck_dataset.csv")
 MODEL_PATH = Path("truck_maintenance_regressor.pkl")
 
@@ -96,9 +97,7 @@ model_features = [
 ]
 
 
-# ============================
 # UTILITY FUNCTIONS
-# ============================
 
 def get_latest_record_for_plate(plate: str):
     plate = plate.strip().upper()
@@ -122,18 +121,15 @@ def health_level(value, good, warn):
     else:
         return ("🔴 Critical", "bad")
 
-
-# ============================
 # SIDEBAR
-# ============================
+
 st.sidebar.title("🚛 Predictive Vehicle Maintenance")
 page = st.sidebar.radio("Navigate", ["Dashboard", "Predict Next Service", "Service History", "Data Explorer"])
 st.sidebar.markdown("---")
 
 
-# ============================
 # DASHBOARD
-# ============================
+
 if page == "Dashboard":
 
     st.markdown("<h1 style='color:white;'>📊 Fleet Maintenance Dashboard</h1>", unsafe_allow_html=True)
@@ -162,9 +158,9 @@ if page == "Dashboard":
     st.altair_chart(chart, use_container_width=True)
 
 
-# ============================
+
 # PREDICT NEXT SERVICE
-# ============================
+
 elif page == "Predict Next Service":
 
     st.markdown("<h1 style='color:white;'>🔮 Predict Next Service</h1>", unsafe_allow_html=True)
@@ -343,9 +339,9 @@ elif page == "Predict Next Service":
             st.error(f"Prediction failed: {e}")
 
 
-# ============================
+
 # SERVICE HISTORY
-# ============================
+
 elif page == "Service History":
     st.title("📜 Service History Lookup")
     plate = st.text_input("Enter Number Plate")
@@ -358,9 +354,9 @@ elif page == "Service History":
             st.dataframe(m)
 
 
-# ============================
+
 # DATA EXPLORER
-# ============================
+
 elif page == "Data Explorer":
     st.title("📂 Dataset")
     st.dataframe(df)
